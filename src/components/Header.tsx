@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { ViewMode } from '../types';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
+import firebaseConfig from '../../firebase-applet-config.json';
 import {
   Sparkles,
   Layers,
@@ -20,6 +21,11 @@ import {
   ChevronDown,
   ChevronUp,
   SlidersHorizontal,
+  ExternalLink,
+  Copy,
+  Check,
+  ShieldAlert,
+  X,
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -74,10 +80,32 @@ export const Header: React.FC<HeaderProps> = ({
   const { isDark, toggleTheme } = useTheme();
   const { user, loading: authLoading, signInWithGoogle, signOut } = useAuth();
   const [loginError, setLoginError] = useState<string | null>(null);
+  const [unauthorizedDomain, setUnauthorizedDomain] = useState<string | null>(null);
+  const [copiedDomain, setCopiedDomain] = useState(false);
+
+  const copyDomainToClipboard = async (text: string) => {
+    try {
+      if (navigator.clipboard && navigator.clipboard.writeText) {
+        await navigator.clipboard.writeText(text);
+      } else {
+        const input = document.createElement('input');
+        input.value = text;
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand('copy');
+        document.body.removeChild(input);
+      }
+      setCopiedDomain(true);
+      setTimeout(() => setCopiedDomain(false), 2500);
+    } catch (e) {
+      console.error('Failed to copy domain to clipboard:', e);
+    }
+  };
 
   const handleSignIn = async () => {
     try {
       setLoginError(null);
+      setUnauthorizedDomain(null);
       const success = await signInWithGoogle();
       if (!success) {
         // User closed or cancelled the popup dialog - no action or error needed
@@ -86,12 +114,22 @@ export const Header: React.FC<HeaderProps> = ({
     } catch (err: any) {
       const code = err?.code || '';
       if (
-        code !== 'auth/popup-closed-by-user' &&
-        code !== 'auth/cancelled-popup-request' &&
-        code !== 'auth/user-cancelled'
+        code === 'auth/popup-closed-by-user' ||
+        code === 'auth/cancelled-popup-request' ||
+        code === 'auth/user-cancelled'
       ) {
-        setLoginError(err?.message || 'Could not sign in with Google. Please try again.');
+        return;
       }
+
+      if (code === 'auth/unauthorized-domain' || err?.message?.includes('unauthorized-domain')) {
+        const domain =
+          err?.domain ||
+          (typeof window !== 'undefined' ? window.location.hostname : 'current domain');
+        setUnauthorizedDomain(domain);
+        return;
+      }
+
+      setLoginError(err?.message || 'Could not sign in with Google. Please try again.');
     }
   };
 
@@ -475,6 +513,87 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
       </div>
+
+      {/* Unauthorized Domain Resolution Banner & Action Box */}
+      {unauthorizedDomain && (
+        <div className="bg-amber-50 dark:bg-amber-950/90 border-t border-amber-300 dark:border-amber-700/80 px-4 py-3.5 text-xs text-amber-950 dark:text-amber-100 shadow-inner">
+          <div className="max-w-6xl mx-auto flex flex-col md:flex-row md:items-start justify-between gap-4">
+            <div className="flex items-start gap-3 min-w-0">
+              <span className="p-1.5 rounded-lg bg-amber-200 dark:bg-amber-900/80 text-amber-900 dark:text-amber-200 shrink-0 mt-0.5">
+                <ShieldAlert className="w-4 h-4" />
+              </span>
+              <div className="space-y-1.5 min-w-0">
+                <div className="flex items-center gap-2 flex-wrap">
+                  <h4 className="font-bold text-stone-900 dark:text-stone-100 text-sm">
+                    Domain Authorization Needed in Firebase
+                  </h4>
+                  <span className="text-[11px] font-mono px-2 py-0.5 rounded-md bg-amber-100 dark:bg-amber-900/50 border border-amber-300 dark:border-amber-700/70 font-semibold text-amber-900 dark:text-amber-200">
+                    auth/unauthorized-domain
+                  </span>
+                </div>
+
+                <p className="text-stone-600 dark:text-stone-300 leading-relaxed max-w-3xl">
+                  Google Sign-In blocked this request because the current hosting domain is not listed under <strong>Authorized domains</strong> in your Firebase project (<code className="font-mono text-stone-800 dark:text-stone-200">{firebaseConfig.projectId}</code>).
+                </p>
+
+                {/* Domain copy box & action buttons */}
+                <div className="flex flex-wrap items-center gap-2.5 pt-1">
+                  <div className="inline-flex items-center gap-1.5 bg-white dark:bg-stone-900 border border-stone-300 dark:border-stone-700 rounded-lg px-2.5 py-1 text-xs font-mono text-stone-800 dark:text-stone-200 shadow-2xs">
+                    <span className="truncate max-w-[280px] sm:max-w-[400px]" title={unauthorizedDomain}>
+                      {unauthorizedDomain}
+                    </span>
+                    <button
+                      onClick={() => copyDomainToClipboard(unauthorizedDomain)}
+                      className="ml-1 text-stone-500 hover:text-stone-900 dark:text-stone-400 dark:hover:text-stone-100 transition-colors p-0.5 rounded"
+                      title="Copy domain to clipboard"
+                    >
+                      {copiedDomain ? (
+                        <span className="flex items-center gap-1 text-emerald-600 dark:text-emerald-400 font-sans font-medium text-[11px]">
+                          <Check className="w-3.5 h-3.5" /> Copied!
+                        </span>
+                      ) : (
+                        <Copy className="w-3.5 h-3.5" />
+                      )}
+                    </button>
+                  </div>
+
+                  <a
+                    href={`https://console.firebase.google.com/project/${firebaseConfig.projectId}/authentication/settings`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 px-3 py-1 rounded-lg text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-stone-950 transition-colors shadow-2xs"
+                  >
+                    <span>Open Firebase Auth Settings</span>
+                    <ExternalLink className="w-3.5 h-3.5" />
+                  </a>
+
+                  <button
+                    onClick={handleSignIn}
+                    className="inline-flex items-center gap-1 px-3 py-1 rounded-lg text-xs font-medium bg-white dark:bg-stone-900 border border-stone-300 dark:border-stone-700 text-stone-800 dark:text-stone-200 hover:bg-stone-50 dark:hover:bg-stone-800 transition-colors"
+                  >
+                    Try Sign In Again
+                  </button>
+                </div>
+
+                <ol className="text-[11px] text-stone-500 dark:text-stone-400 list-decimal list-inside space-y-0.5 pt-0.5">
+                  <li>Click <strong>Open Firebase Auth Settings</strong> above</li>
+                  <li>Scroll down to the <strong>Authorized domains</strong> section and click <strong>Add domain</strong></li>
+                  <li>Paste <code className="font-mono text-stone-700 dark:text-stone-300 font-semibold">{unauthorizedDomain}</code> and save</li>
+                </ol>
+              </div>
+            </div>
+
+            <button
+              onClick={() => setUnauthorizedDomain(null)}
+              className="p-1 rounded-lg text-stone-400 hover:text-stone-700 dark:hover:text-stone-200 transition-colors shrink-0"
+              title="Dismiss warning"
+              aria-label="Dismiss"
+            >
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {loginError && (
         <div className="bg-amber-50 dark:bg-amber-950/80 border-t border-amber-200 dark:border-amber-800/80 px-4 py-2 text-xs text-amber-900 dark:text-amber-200 flex items-center justify-between">
