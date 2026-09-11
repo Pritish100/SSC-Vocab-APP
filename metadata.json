@@ -1,0 +1,6 @@
+{
+  "name": "Vocabulary Bank",
+  "description": "Decluttered vocabulary bank that extracts and organizes words into tokenized definitions and semantic word families.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
