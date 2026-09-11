@@ -10,14 +10,14 @@ import { auth, googleProvider } from '../lib/firebase';
 interface AuthContextType {
   user: User | null;
   loading: boolean;
-  signInWithGoogle: () => Promise<void>;
+  signInWithGoogle: () => Promise<boolean>;
   signOut: () => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType>({
   user: null,
   loading: true,
-  signInWithGoogle: async () => {},
+  signInWithGoogle: async () => false,
   signOut: async () => {},
 });
 
@@ -33,12 +33,27 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     return () => unsubscribe();
   }, []);
 
-  const signInWithGoogle = async () => {
+  const signInWithGoogle = async (): Promise<boolean> => {
     try {
       await signInWithPopup(auth, googleProvider);
+      return true;
     } catch (error: any) {
+      const code = error?.code || '';
+      // Normal user dismissal or duplicate popup request - ignore gracefully without error logs
+      if (
+        code === 'auth/popup-closed-by-user' ||
+        code === 'auth/cancelled-popup-request' ||
+        code === 'auth/user-cancelled'
+      ) {
+        return false;
+      }
+
+      if (code === 'auth/popup-blocked') {
+        console.warn('Sign-in popup was blocked by browser. Please allow popups or open in a new tab.');
+        throw new Error('Sign-in popup was blocked by your browser. Please allow popups or open in a new tab.');
+      }
+
       console.error('Sign-in error:', error);
-      // Re-throw so callers or notifications can handle popup closing
       throw error;
     }
   };

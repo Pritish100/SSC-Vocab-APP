@@ -78,10 +78,19 @@ export const Header: React.FC<HeaderProps> = ({
   const handleSignIn = async () => {
     try {
       setLoginError(null);
-      await signInWithGoogle();
+      const success = await signInWithGoogle();
+      if (!success) {
+        // User closed or cancelled the popup dialog - no action or error needed
+        return;
+      }
     } catch (err: any) {
-      if (err?.code !== 'auth/popup-closed-by-user') {
-        setLoginError('Could not sign in with Google. Please try again.');
+      const code = err?.code || '';
+      if (
+        code !== 'auth/popup-closed-by-user' &&
+        code !== 'auth/cancelled-popup-request' &&
+        code !== 'auth/user-cancelled'
+      ) {
+        setLoginError(err?.message || 'Could not sign in with Google. Please try again.');
       }
     }
   };
@@ -466,6 +475,18 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
         </div>
       </div>
+
+      {loginError && (
+        <div className="bg-amber-50 dark:bg-amber-950/80 border-t border-amber-200 dark:border-amber-800/80 px-4 py-2 text-xs text-amber-900 dark:text-amber-200 flex items-center justify-between">
+          <span>{loginError}</span>
+          <button
+            onClick={() => setLoginError(null)}
+            className="ml-3 font-semibold hover:underline text-amber-800 dark:text-amber-300 shrink-0"
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
     </header>
   );
 };
