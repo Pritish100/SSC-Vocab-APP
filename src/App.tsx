@@ -3,7 +3,7 @@
  * SPDX-License-Identifier: Apache-2.0
  */
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { WordToken, WordFamily, ViewMode } from './types';
 import { INITIAL_WORDS, INITIAL_FAMILIES } from './data/initialVocab';
 import { Header } from './components/Header';
@@ -13,6 +13,15 @@ import { FlashcardMode } from './components/FlashcardMode';
 import { InputModal } from './components/InputModal';
 import { SearchModal } from './components/SearchModal';
 import { exportWordsAsPlainText } from './utils/formatters';
+import { useAuth } from './context/AuthContext';
+import {
+  saveWordToCloud,
+  deleteWordFromCloud,
+  saveUserDataToCloud,
+  bulkUploadToCloud,
+  subscribeToUserWords,
+  subscribeToUserData,
+} from './lib/cloudSync';
 import { Plus, Sparkles, CheckCircle2, Layers, BookOpen, GraduationCap, RefreshCw } from 'lucide-react';
 
 const STORAGE_KEY_WORDS = 'vocab_bank_tokens_v1';
@@ -49,6 +58,7 @@ export function deduplicateTokens(tokens: WordToken[]): WordToken[] {
 }
 
 export default function App() {
+  const { user } = useAuth();
   const [words, setWords] = useState<WordToken[]>(() => {
     try {
       const saved = localStorage.getItem(STORAGE_KEY_WORDS);
@@ -75,6 +85,72 @@ export default function App() {
   const [activeTokenSearch, setActiveTokenSearch] = useState<string>('');
   const [customExtractText, setCustomExtractText] = useState<string>('');
   const [toastMessage, setToastMessage] = useState<{ text: string; sub?: string } | null>(null);
+  const [isSyncing, setIsSyncing] = useState(false);
+
+  // Track initial sync flag for cloud user
+  const initialCloudLoadedRef = useRef(false);
+
+  // Firestore Real-Time Synchronization when user logs in with Google
+  useEffect(() => {
+    if (!user) {
+      initialCloudLoadedRef.current = false;
+      return;
+    }
+
+    setIsSyncing(true);
+
+    // 1. Subscribe to real-time word collection
+    const unsubWords = subscribeToUserWords(
+      user.uid,
+      async (cloudWords) => {
+        if (!initialCloudLoadedRef.current) {
+          initialCloudLoadedRef.current = true;
+          // First time this user signed in: If cloud is completely empty, bulk seed with current local words
+          if (cloudWords.length === 0) {
+            try {
+              await bulkUploadToCloud(user.uid, words, families, user.email, user.displayName);
+              showToast(
+                `Synced ${words.length} vocabulary words to your Google Account!`,
+                `You can now access your bank on your phone by logging into ${user.email}.`
+              );
+            } catch (err) {
+              console.error('Initial bulk sync error:', err);
+            } finally {
+              setIsSyncing(false);
+            }
+            return;
+          }
+        }
+
+        if (cloudWords.length > 0) {
+          setWords(deduplicateTokens(cloudWords));
+        }
+        setIsSyncing(false);
+      },
+      (err) => {
+        console.error('Cloud words subscription error:', err);
+        setIsSyncing(false);
+      }
+    );
+
+    // 2. Subscribe to user metadata (families)
+    const unsubData = subscribeToUserData(
+      user.uid,
+      (cloudData) => {
+        if (cloudData.families && cloudData.families.length > 0) {
+          setFamilies(cloudData.families);
+        }
+      },
+      (err) => {
+        console.error('Cloud families subscription error:', err);
+      }
+    );
+
+    return () => {
+      unsubWords();
+      unsubData();
+    };
+  }, [user?.uid]);
 
   // Global keyboard shortcuts for instant word search: Cmd+K, Ctrl+K, or "/"
   useEffect(() => {
@@ -138,7 +214,7 @@ export default function App() {
   };
 
   // Add newly extracted words & update word families dynamically without creating duplicates
-  const handleAddWords = (newRawWords: Omit<WordToken, 'id' | 'createdAt'>[]) => {
+  const handleAddWords = async (newRawWords: Omit<WordToken, 'id' | 'createdAt'>[]) => {
     // 1. Deduplicate incoming batch by headword
     const incomingMap = new Map<string, Omit<WordToken, 'id' | 'createdAt'>>();
     for (const w of newRawWords) {
@@ -162,6 +238,7 @@ export default function App() {
     });
 
     const newTokensToAdd: WordToken[] = [];
+    const touchedWordsToSync: WordToken[] = [];
     let updatedWordCount = 0;
     let newWordCount = 0;
 
@@ -197,13 +274,15 @@ export default function App() {
         // Update existing word in place, keeping ID and mastered state
         const idx = existingWordIndexMap.get(key)!;
         const existing = currentWords[idx];
-        currentWords[idx] = {
+        const updatedEntry: WordToken = {
           ...existing,
           ...rawWord,
           wordFamily: canonicalFamily,
           id: existing.id,
           mastered: existing.mastered,
         };
+        currentWords[idx] = updatedEntry;
+        touchedWordsToSync.push(updatedEntry);
         updatedWordCount++;
       } else {
         // Insert as truly new word token
@@ -215,12 +294,31 @@ export default function App() {
           mastered: false,
         };
         newTokensToAdd.push(newToken);
+        touchedWordsToSync.push(newToken);
         newWordCount++;
       }
     });
 
+    const finalWordList = deduplicateTokens([...newTokensToAdd, ...currentWords]);
     setFamilies(updatedFamilies);
-    setWords(deduplicateTokens([...newTokensToAdd, ...currentWords]));
+    setWords(finalWordList);
+
+    // Sync changes to Cloud Firestore if user is authenticated
+    if (user) {
+      try {
+        setIsSyncing(true);
+        await saveUserDataToCloud(user.uid, {
+          email: user.email,
+          displayName: user.displayName,
+          families: updatedFamilies,
+        });
+        await Promise.all(touchedWordsToSync.map((w) => saveWordToCloud(user.uid, w)));
+      } catch (err) {
+        console.error('Failed to sync added words to cloud:', err);
+      } finally {
+        setIsSyncing(false);
+      }
+    }
 
     // Construct informative feedback notification
     let feedback = '';
@@ -266,23 +364,21 @@ export default function App() {
 
       if (existing) {
         // Update existing word without creating duplicate
-        setWords((prev) =>
-          prev.map((w) =>
-            w.id === existing.id
-              ? {
-                  ...w,
-                  partOfSpeech: data.partOfSpeech || w.partOfSpeech,
-                  translation: data.translation || w.translation,
-                  definition: data.definition || w.definition,
-                  usage: data.usage || w.usage,
-                  wordFamily: targetFamilyName,
-                  familyDescription: data.familyDescription || w.familyDescription,
-                  nuance: data.nuance || w.nuance,
-                  synonyms: data.synonyms || w.synonyms,
-                }
-              : w
-          )
-        );
+        const updatedEntry: WordToken = {
+          ...existing,
+          partOfSpeech: data.partOfSpeech || existing.partOfSpeech,
+          translation: data.translation || existing.translation,
+          definition: data.definition || existing.definition,
+          usage: data.usage || existing.usage,
+          wordFamily: targetFamilyName,
+          familyDescription: data.familyDescription || existing.familyDescription,
+          nuance: data.nuance || existing.nuance,
+          synonyms: data.synonyms || existing.synonyms,
+        };
+        setWords((prev) => prev.map((w) => (w.id === existing.id ? updatedEntry : w)));
+        if (user) {
+          saveWordToCloud(user.uid, updatedEntry).catch(console.error);
+        }
         showToast(`Updated "${existing.word}" in family "${targetFamilyName}" (no duplicate created)`);
         return;
       }
@@ -303,6 +399,9 @@ export default function App() {
       };
 
       setWords((prev) => deduplicateTokens([newToken, ...prev]));
+      if (user) {
+        saveWordToCloud(user.uid, newToken).catch(console.error);
+      }
       showToast(`Added "${newToken.word}" to family "${targetFamilyName}"`);
     } catch (err: any) {
       console.error(err);
@@ -310,20 +409,55 @@ export default function App() {
     }
   };
 
-  const handleDeleteToken = (id: string) => {
+  const handleDeleteToken = async (id: string) => {
     setWords((prev) => prev.filter((w) => w.id !== id));
+    if (user) {
+      try {
+        await deleteWordFromCloud(user.uid, id);
+      } catch (err) {
+        console.error('Failed to delete word from cloud:', err);
+      }
+    }
   };
 
-  const handleToggleMastered = (id: string) => {
+  const handleToggleMastered = async (id: string) => {
+    let toggledItem: WordToken | undefined;
     setWords((prev) =>
-      prev.map((w) => (w.id === id ? { ...w, mastered: !w.mastered } : w))
+      prev.map((w) => {
+        if (w.id === id) {
+          toggledItem = { ...w, mastered: !w.mastered };
+          return toggledItem;
+        }
+        return w;
+      })
     );
+    if (user && toggledItem) {
+      try {
+        await saveWordToCloud(user.uid, toggledItem);
+      } catch (err) {
+        console.error('Failed to sync mastered state to cloud:', err);
+      }
+    }
   };
 
-  const handleMoveFamily = (id: string, newFamily: string) => {
+  const handleMoveFamily = async (id: string, newFamily: string) => {
+    let movedItem: WordToken | undefined;
     setWords((prev) =>
-      prev.map((w) => (w.id === id ? { ...w, wordFamily: newFamily } : w))
+      prev.map((w) => {
+        if (w.id === id) {
+          movedItem = { ...w, wordFamily: newFamily };
+          return movedItem;
+        }
+        return w;
+      })
     );
+    if (user && movedItem) {
+      try {
+        await saveWordToCloud(user.uid, movedItem);
+      } catch (err) {
+        console.error('Failed to update moved word to cloud:', err);
+      }
+    }
     showToast(`Word moved to "${newFamily}"`);
   };
 
@@ -339,10 +473,20 @@ export default function App() {
     showToast('Vocabulary bank downloaded as formatted token text.');
   };
 
-  const handleResetSample = () => {
+  const handleResetSample = async () => {
     if (window.confirm('Reset vocabulary bank back to sample word families?')) {
       setWords(INITIAL_WORDS);
       setFamilies(INITIAL_FAMILIES);
+      if (user) {
+        try {
+          setIsSyncing(true);
+          await bulkUploadToCloud(user.uid, INITIAL_WORDS, INITIAL_FAMILIES, user.email, user.displayName);
+        } catch (err) {
+          console.error('Failed to reset cloud bank:', err);
+        } finally {
+          setIsSyncing(false);
+        }
+      }
       showToast('Reset bank to sample word families.');
     }
   };
@@ -404,6 +548,7 @@ export default function App() {
         masteredCount={masteredCount}
         onExportText={handleExportText}
         onResetSample={handleResetSample}
+        isSyncing={isSyncing}
       />
 
       {/* Dynamic Toast Feedback */}
