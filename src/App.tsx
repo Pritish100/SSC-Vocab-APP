@@ -11,6 +11,7 @@ import { WordFamilyCard } from './components/WordFamilyCard';
 import { AllWordsView } from './components/AllWordsView';
 import { FlashcardMode } from './components/FlashcardMode';
 import { InputModal } from './components/InputModal';
+import { SearchModal } from './components/SearchModal';
 import { exportWordsAsPlainText } from './utils/formatters';
 import { Plus, Sparkles, CheckCircle2, Layers, BookOpen, GraduationCap, RefreshCw } from 'lucide-react';
 
@@ -69,7 +70,50 @@ export default function App() {
 
   const [viewMode, setViewMode] = useState<ViewMode>('families');
   const [isInputModalOpen, setIsInputModalOpen] = useState(false);
+  const [isSearchOpen, setIsSearchOpen] = useState(false);
+  const [targetWordId, setTargetWordId] = useState<string | null>(null);
+  const [activeTokenSearch, setActiveTokenSearch] = useState<string>('');
+  const [customExtractText, setCustomExtractText] = useState<string>('');
   const [toastMessage, setToastMessage] = useState<{ text: string; sub?: string } | null>(null);
+
+  // Global keyboard shortcuts for instant word search: Cmd+K, Ctrl+K, or "/"
+  useEffect(() => {
+    const handleGlobalKeyDown = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        setIsSearchOpen((prev) => !prev);
+      } else if (
+        e.key === '/' &&
+        !['INPUT', 'TEXTAREA', 'SELECT'].includes((e.target as HTMLElement)?.tagName)
+      ) {
+        e.preventDefault();
+        setIsSearchOpen(true);
+      }
+    };
+    window.addEventListener('keydown', handleGlobalKeyDown);
+    return () => window.removeEventListener('keydown', handleGlobalKeyDown);
+  }, []);
+
+  const handleSelectWordFromSearch = (word: WordToken, action: 'family' | 'all') => {
+    setIsSearchOpen(false);
+    if (action === 'family') {
+      setViewMode('families');
+      setTargetWordId(word.id);
+      setTimeout(() => {
+        const famId = `family-section-${word.wordFamily.replace(/\s+/g, '-').toLowerCase()}`;
+        const el = document.getElementById(famId);
+        el?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }, 80);
+    } else {
+      setActiveTokenSearch(word.word);
+      setViewMode('all');
+    }
+  };
+
+  const handleSearchAddCustomWord = (queryText: string) => {
+    setCustomExtractText(queryText);
+    setIsInputModalOpen(true);
+  };
 
   // Sync to localStorage
   useEffect(() => {
@@ -342,12 +386,19 @@ export default function App() {
   const masteredCount = words.filter((w) => w.mastered).length;
 
   return (
-    <div className="min-h-screen bg-stone-100/60 text-stone-900 flex flex-col font-sans antialiased selection:bg-amber-200 selection:text-stone-900">
+    <div className="min-h-screen bg-stone-100/60 dark:bg-stone-950 text-stone-900 dark:text-stone-100 flex flex-col font-sans antialiased selection:bg-amber-200 dark:selection:bg-amber-900/60 dark:selection:text-amber-200 transition-colors duration-200">
       {/* Header */}
       <Header
         viewMode={viewMode}
-        onViewModeChange={setViewMode}
-        onOpenAddModal={() => setIsInputModalOpen(true)}
+        onViewModeChange={(mode) => {
+          setViewMode(mode);
+          setTargetWordId(null);
+        }}
+        onOpenAddModal={() => {
+          setCustomExtractText('');
+          setIsInputModalOpen(true);
+        }}
+        onOpenSearch={() => setIsSearchOpen(true)}
         totalWords={words.length}
         totalFamilies={groupedTokensByFamily.length}
         masteredCount={masteredCount}
@@ -358,12 +409,12 @@ export default function App() {
       {/* Dynamic Toast Feedback */}
       {toastMessage && (
         <div className="fixed bottom-6 right-6 z-50 animate-in fade-in slide-in-from-bottom-3 duration-300 max-w-md">
-          <div className="bg-stone-900 text-white px-4 py-3 rounded-xl shadow-xl border border-stone-800 flex items-start gap-3">
-            <CheckCircle2 className="w-5 h-5 text-amber-300 shrink-0 mt-0.5" />
+          <div className="bg-stone-900 dark:bg-stone-800 text-white px-4 py-3 rounded-xl shadow-xl border border-stone-800 dark:border-stone-700 flex items-start gap-3">
+            <CheckCircle2 className="w-5 h-5 text-amber-300 dark:text-amber-400 shrink-0 mt-0.5" />
             <div className="text-xs">
               <p className="font-semibold text-white">{toastMessage.text}</p>
               {toastMessage.sub && (
-                <p className="text-stone-300 mt-0.5 leading-relaxed">{toastMessage.sub}</p>
+                <p className="text-stone-300 dark:text-stone-400 mt-0.5 leading-relaxed">{toastMessage.sub}</p>
               )}
             </div>
           </div>
@@ -376,24 +427,24 @@ export default function App() {
         {viewMode === 'families' && (
           <div className="space-y-6">
             {/* Context bar */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-stone-200/80">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-2 border-b border-stone-200/80 dark:border-stone-800">
               <div>
-                <h2 className="text-lg font-serif font-bold text-stone-900 flex items-center gap-2">
+                <h2 className="text-lg font-serif font-bold text-stone-900 dark:text-stone-100 flex items-center gap-2">
                   <span>Semantic Word Families</span>
-                  <span className="text-xs font-mono font-normal text-stone-500 bg-stone-200/70 px-2 py-0.5 rounded-full">
+                  <span className="text-xs font-mono font-normal text-stone-500 dark:text-stone-400 bg-stone-200/70 dark:bg-stone-800 px-2 py-0.5 rounded-full">
                     {groupedTokensByFamily.length} Families
                   </span>
                 </h2>
-                <p className="text-xs text-stone-600 mt-0.5">
+                <p className="text-xs text-stone-600 dark:text-stone-400 mt-0.5">
                   Words sharing semantic domains (e.g. watch, see, look, observe) are kept together. Adding new words automatically merges them into existing families.
                 </p>
               </div>
 
               <button
                 onClick={() => setIsInputModalOpen(true)}
-                className="self-start sm:self-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-stone-900 text-white hover:bg-stone-800 transition-colors shadow-xs"
+                className="self-start sm:self-auto inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-semibold bg-stone-900 dark:bg-amber-400 text-white dark:text-stone-950 hover:bg-stone-800 dark:hover:bg-amber-300 transition-colors shadow-xs"
               >
-                <Plus className="w-3.5 h-3.5 text-amber-300" />
+                <Plus className="w-3.5 h-3.5 text-amber-300 dark:text-stone-950" />
                 <span>Add More Words</span>
               </button>
             </div>
@@ -412,17 +463,18 @@ export default function App() {
                     onMoveFamily={handleMoveFamily}
                     allFamilyNames={allFamilyNames}
                     onQuickAddWordToFamily={handleQuickAddWordToFamily}
+                    targetWordId={targetWordId}
                   />
                 ))}
               </div>
             ) : (
-              <div className="text-center py-20 bg-white rounded-2xl border border-stone-200 p-8">
-                <p className="text-stone-600 text-sm mb-4">Your vocabulary bank is currently empty.</p>
+              <div className="text-center py-20 bg-white dark:bg-stone-900 rounded-2xl border border-stone-200 dark:border-stone-800 p-8">
+                <p className="text-stone-600 dark:text-stone-400 text-sm mb-4">Your vocabulary bank is currently empty.</p>
                 <button
                   onClick={() => setIsInputModalOpen(true)}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-semibold text-white bg-stone-900 hover:bg-stone-800"
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl text-xs font-semibold text-white bg-stone-900 dark:bg-amber-400 dark:text-stone-950 hover:bg-stone-800 dark:hover:bg-amber-300"
                 >
-                  <Plus className="w-4 h-4 text-amber-300" />
+                  <Plus className="w-4 h-4 text-amber-300 dark:text-stone-950" />
                   <span>Extract Your First Words</span>
                 </button>
               </div>
@@ -438,6 +490,7 @@ export default function App() {
             onToggleMastered={handleToggleMastered}
             onMoveFamily={handleMoveFamily}
             allFamilyNames={allFamilyNames}
+            initialSearchQuery={activeTokenSearch}
           />
         )}
 
@@ -451,13 +504,27 @@ export default function App() {
         )}
       </main>
 
+      {/* Global Word Search Modal (Triggered by Search Button at the top, or Cmd+K / /) */}
+      <SearchModal
+        isOpen={isSearchOpen}
+        onClose={() => setIsSearchOpen(false)}
+        words={words}
+        onSelectWord={handleSelectWordFromSearch}
+        onToggleMastered={handleToggleMastered}
+        onAddCustomQuery={handleSearchAddCustomWord}
+      />
+
       {/* Input Modal for Extraction */}
       <InputModal
         isOpen={isInputModalOpen}
-        onClose={() => setIsInputModalOpen(false)}
+        onClose={() => {
+          setIsInputModalOpen(false);
+          setCustomExtractText('');
+        }}
         onAddWords={handleAddWords}
         existingFamilies={families}
         existingWords={words}
+        initialText={customExtractText}
       />
     </div>
   );

@@ -14,6 +14,7 @@ interface WordFamilyCardProps {
   allFamilyNames: string[];
   onQuickAddWordToFamily: (familyName: string, word: string) => Promise<void>;
   isInitiallyExpanded?: boolean;
+  targetWordId?: string | null;
 }
 
 export const WordFamilyCard: React.FC<WordFamilyCardProps> = ({
@@ -25,6 +26,7 @@ export const WordFamilyCard: React.FC<WordFamilyCardProps> = ({
   onMoveFamily,
   allFamilyNames,
   onQuickAddWordToFamily,
+  targetWordId,
 }) => {
   // Deduplicate tokens defensively by headword
   const displayTokens = useMemo(() => {
@@ -44,6 +46,20 @@ export const WordFamilyCard: React.FC<WordFamilyCardProps> = ({
   const [lastAddedWord, setLastAddedWord] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
+
+  // Auto-open targeted word from search
+  useEffect(() => {
+    if (targetWordId) {
+      const match = displayTokens.find((t) => t.id === targetWordId);
+      if (match) {
+        setOpenWordIds((prev) => (prev.includes(match.id) ? prev : [...prev, match.id]));
+        setTimeout(() => {
+          const el = document.getElementById(`token-card-${match.id}`);
+          el?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }, 100);
+      }
+    }
+  }, [targetWordId, displayTokens]);
 
   // Auto-open newly added word in this family
   useEffect(() => {
@@ -109,25 +125,25 @@ export const WordFamilyCard: React.FC<WordFamilyCardProps> = ({
   return (
     <div
       id={`family-section-${familyName.replace(/\s+/g, '-').toLowerCase()}`}
-      className="bg-white rounded-2xl border border-stone-200/90 shadow-xs hover:border-stone-300 transition-all duration-200 overflow-hidden mb-6"
+      className="bg-white dark:bg-stone-900 rounded-2xl border border-stone-200/90 dark:border-stone-800 shadow-xs hover:border-stone-300 dark:hover:border-stone-700 transition-all duration-200 overflow-hidden mb-6"
     >
       {/* Family Header */}
-      <div className="p-5 sm:p-6 bg-linear-to-b from-stone-50/70 to-white">
+      <div className="p-5 sm:p-6 bg-linear-to-b from-stone-50/70 to-white dark:from-stone-900/90 dark:to-stone-900">
         <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
           <div className="space-y-2 flex-1">
             {/* Title & Badges */}
             <div className="flex items-center gap-2.5 flex-wrap">
-              <span className="p-1.5 rounded-lg bg-stone-900 text-amber-300">
+              <span className="p-1.5 rounded-lg bg-stone-900 dark:bg-amber-400 text-amber-300 dark:text-stone-950">
                 <Tag className="w-4 h-4" />
               </span>
-              <h2 className="text-xl font-serif font-bold text-stone-900 tracking-tight">
+              <h2 className="text-xl font-serif font-bold text-stone-900 dark:text-stone-100 tracking-tight">
                 {familyName}
               </h2>
-              <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-stone-100 text-stone-700 border border-stone-200">
+              <span className="text-xs font-medium px-2.5 py-0.5 rounded-full bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700">
                 {displayTokens.length} {displayTokens.length === 1 ? 'word' : 'words'}
               </span>
               {masteredCount > 0 && (
-                <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200">
+                <span className="text-xs font-medium px-2 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-400 border border-emerald-200 dark:border-emerald-800/60">
                   {masteredCount} mastered
                 </span>
               )}
@@ -135,7 +151,7 @@ export const WordFamilyCard: React.FC<WordFamilyCardProps> = ({
 
             {/* Description */}
             {description && (
-              <p className="text-stone-600 text-sm font-normal max-w-3xl leading-relaxed">
+              <p className="text-stone-600 dark:text-stone-400 text-sm font-normal max-w-3xl leading-relaxed">
                 {description}
               </p>
             )}
@@ -144,10 +160,10 @@ export const WordFamilyCard: React.FC<WordFamilyCardProps> = ({
             <div className="pt-2">
               <div className="flex items-center justify-between gap-2 mb-2">
                 <div className="flex items-center gap-1.5">
-                  <span className="text-[11px] text-stone-500 font-mono uppercase tracking-wider font-semibold">
+                  <span className="text-[11px] text-stone-500 dark:text-stone-400 font-mono uppercase tracking-wider font-semibold">
                     Family members:
                   </span>
-                  <span className="text-[11px] text-stone-400">
+                  <span className="text-[11px] text-stone-400 dark:text-stone-500">
                     (click word to open token)
                   </span>
                 </div>
@@ -157,14 +173,14 @@ export const WordFamilyCard: React.FC<WordFamilyCardProps> = ({
                     {allOpen ? (
                       <button
                         onClick={handleCloseAll}
-                        className="text-[11px] text-stone-500 hover:text-stone-800 underline"
+                        className="text-[11px] text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200 underline"
                       >
                         Hide all
                       </button>
                     ) : (
                       <button
                         onClick={handleOpenAll}
-                        className="text-[11px] text-stone-500 hover:text-stone-800 underline"
+                        className="text-[11px] text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200 underline"
                       >
                         Open all ({displayTokens.length})
                       </button>
@@ -185,14 +201,14 @@ export const WordFamilyCard: React.FC<WordFamilyCardProps> = ({
                       title={isOpen ? `Click to hide ${token.word}` : `Click to open ${token.word} token`}
                       className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-medium transition-all duration-150 cursor-pointer select-none ${
                         isOpen
-                          ? 'bg-stone-900 text-white shadow-xs border border-stone-900 ring-2 ring-stone-900/10'
-                          : 'bg-stone-100 hover:bg-stone-200 text-stone-800 border border-stone-200/80 hover:border-stone-300'
+                          ? 'bg-stone-900 dark:bg-amber-400 text-white dark:text-stone-950 shadow-xs border border-stone-900 dark:border-amber-400 ring-2 ring-stone-900/10 dark:ring-amber-400/20'
+                          : 'bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-750 text-stone-800 dark:text-stone-200 border border-stone-200/80 dark:border-stone-700 hover:border-stone-300 dark:hover:border-stone-600'
                       }`}
                     >
                       <span className="font-serif font-semibold text-[13px]">{token.word}</span>
                       <span
                         className={`text-[10px] font-sans ${
-                          isOpen ? 'text-stone-300' : 'text-stone-500'
+                          isOpen ? 'text-stone-300 dark:text-stone-900/80' : 'text-stone-500 dark:text-stone-400'
                         }`}
                       >
                         ({token.partOfSpeech.slice(0, 1)})
@@ -200,7 +216,7 @@ export const WordFamilyCard: React.FC<WordFamilyCardProps> = ({
                       {token.mastered && (
                         <CheckCircle2
                           className={`w-3 h-3 ${
-                            isOpen ? 'text-emerald-400' : 'text-emerald-600'
+                            isOpen ? 'text-emerald-400 dark:text-emerald-950' : 'text-emerald-600 dark:text-emerald-400'
                           }`}
                         />
                       )}
@@ -221,7 +237,7 @@ export const WordFamilyCard: React.FC<WordFamilyCardProps> = ({
             <button
               id={`quick-add-btn-${familyName.replace(/\s+/g, '-').toLowerCase()}`}
               onClick={() => setShowQuickAdd(!showQuickAdd)}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-stone-100 hover:bg-stone-200 text-stone-800 transition-colors border border-stone-200/80"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-800 dark:text-stone-200 transition-colors border border-stone-200/80 dark:border-stone-700"
               title="Add a new word to this word family"
             >
               <Plus className="w-3.5 h-3.5" />
@@ -230,13 +246,13 @@ export const WordFamilyCard: React.FC<WordFamilyCardProps> = ({
 
             <button
               onClick={handleCopyAll}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-stone-600 hover:text-stone-900 hover:bg-stone-100 transition-colors border border-stone-200"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-stone-600 dark:text-stone-300 hover:text-stone-900 dark:hover:text-stone-100 hover:bg-stone-100 dark:hover:bg-stone-800 transition-colors border border-stone-200 dark:border-stone-700"
               title="Copy all tokens in this family"
             >
               {copiedAll ? (
                 <>
-                  <Check className="w-3.5 h-3.5 text-emerald-600" />
-                  <span className="text-emerald-600">Copied</span>
+                  <Check className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400" />
+                  <span className="text-emerald-600 dark:text-emerald-400">Copied</span>
                 </>
               ) : (
                 <>
@@ -252,7 +268,7 @@ export const WordFamilyCard: React.FC<WordFamilyCardProps> = ({
         {showQuickAdd && (
           <form
             onSubmit={handleQuickSubmit}
-            className="mt-4 pt-3 border-t border-stone-200/80 flex items-center gap-2"
+            className="mt-4 pt-3 border-t border-stone-200/80 dark:border-stone-800 flex items-center gap-2"
           >
             <div className="relative flex-1">
               <input
@@ -261,14 +277,14 @@ export const WordFamilyCard: React.FC<WordFamilyCardProps> = ({
                 onChange={(e) => setQuickWord(e.target.value)}
                 placeholder={`Type a word to add to "${familyName}" (e.g. peer, glance, scrutinize)...`}
                 disabled={isAdding}
-                className="w-full text-sm px-3 py-2 rounded-lg border border-stone-300 focus:outline-hidden focus:ring-2 focus:ring-stone-800 focus:border-stone-800 text-stone-900 bg-white"
+                className="w-full text-sm px-3 py-2 rounded-lg border border-stone-300 dark:border-stone-700 focus:outline-hidden focus:ring-2 focus:ring-stone-800 dark:focus:ring-amber-400/40 focus:border-stone-800 dark:focus:border-amber-400 text-stone-900 dark:text-stone-100 bg-white dark:bg-stone-950 placeholder:text-stone-400 dark:placeholder:text-stone-500"
                 autoFocus
               />
             </div>
             <button
               type="submit"
               disabled={!quickWord.trim() || isAdding}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-stone-900 hover:bg-stone-800 disabled:opacity-50 transition-colors"
+              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-xs font-semibold text-white bg-stone-900 dark:bg-amber-400 dark:text-stone-950 hover:bg-stone-800 dark:hover:bg-amber-300 disabled:opacity-50 transition-colors"
             >
               {isAdding ? (
                 <>
@@ -282,7 +298,7 @@ export const WordFamilyCard: React.FC<WordFamilyCardProps> = ({
             <button
               type="button"
               onClick={() => setShowQuickAdd(false)}
-              className="px-3 py-2 rounded-lg text-xs text-stone-500 hover:text-stone-800"
+              className="px-3 py-2 rounded-lg text-xs text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200"
             >
               Cancel
             </button>
@@ -292,14 +308,14 @@ export const WordFamilyCard: React.FC<WordFamilyCardProps> = ({
 
       {/* Opened Tokens Area */}
       {openTokens.length > 0 ? (
-        <div className="p-5 sm:p-6 bg-stone-50/50 border-t border-stone-200/70">
+        <div className="p-5 sm:p-6 bg-stone-50/50 dark:bg-stone-950/40 border-t border-stone-200/70 dark:border-stone-800">
           <div className="flex items-center justify-between gap-2 mb-3">
-            <span className="text-xs font-semibold text-stone-700 uppercase tracking-wider">
+            <span className="text-xs font-semibold text-stone-700 dark:text-stone-300 uppercase tracking-wider">
               Opened Tokens ({openTokens.length})
             </span>
             <button
               onClick={handleCloseAll}
-              className="text-xs text-stone-500 hover:text-stone-800 flex items-center gap-1"
+              className="text-xs text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200 flex items-center gap-1"
             >
               <X className="w-3.5 h-3.5" />
               <span>Close all</span>
@@ -312,30 +328,31 @@ export const WordFamilyCard: React.FC<WordFamilyCardProps> = ({
             }`}
           >
             {openTokens.map((token) => (
-              <TokenCard
-                key={token.id}
-                token={token}
-                onDelete={onDeleteToken}
-                onToggleMastered={onToggleMastered}
-                onMoveFamily={onMoveFamily}
-                onClose={() => handleToggleWord(token.id)}
-                availableFamilies={allFamilyNames}
-                highlightFamily={false}
-              />
+              <div key={token.id} id={`token-card-${token.id}`}>
+                <TokenCard
+                  token={token}
+                  onDelete={onDeleteToken}
+                  onToggleMastered={onToggleMastered}
+                  onMoveFamily={onMoveFamily}
+                  onClose={() => handleToggleWord(token.id)}
+                  availableFamilies={allFamilyNames}
+                  highlightFamily={false}
+                />
+              </div>
             ))}
           </div>
         </div>
       ) : (
         /* Unopened clean hint */
-        <div className="px-6 py-3.5 bg-stone-50/30 border-t border-stone-100/80 flex items-center justify-between text-xs text-stone-500">
+        <div className="px-6 py-3.5 bg-stone-50/30 dark:bg-stone-900/30 border-t border-stone-100/80 dark:border-stone-800/80 flex items-center justify-between text-xs text-stone-500 dark:text-stone-400">
           <div className="flex items-center gap-2">
-            <MousePointerClick className="w-3.5 h-3.5 text-stone-400 shrink-0" />
+            <MousePointerClick className="w-3.5 h-3.5 text-stone-400 dark:text-stone-500 shrink-0" />
             <span>Click any family member word above to view its token structure, definition & usage.</span>
           </div>
           {displayTokens[0] && (
             <button
               onClick={() => handleToggleWord(displayTokens[0].id)}
-              className="text-stone-600 hover:text-stone-900 font-medium hover:underline text-[11px] shrink-0 ml-2"
+              className="text-stone-600 dark:text-stone-300 hover:text-stone-900 dark:hover:text-stone-100 font-medium hover:underline text-[11px] shrink-0 ml-2"
             >
               Open "{displayTokens[0].word}" →
             </button>
