@@ -130,8 +130,9 @@ app.post('/api/extract-words', async (req, res) => {
           .map((f: { name: string; words?: string[]; description?: string }) => 
             `- "${f.name}": contains words like [${(f.words || []).slice(0, 8).join(', ')}] (${f.description || ''})`
           )
-          .join('\n')}\nCRITICAL INSTRUCTION: If any extracted word conceptually belongs to one of these existing families (e.g. synonyms, near-synonyms, or same cognitive/semantic domain like watch/see/look/observe/glance/gaze belong together), you MUST reuse that exact existing family name! Only invent a new word family name if the word does not fit into any existing family.`
-      : '\nGroup related words into clean, intuitive word family names (e.g., "Vision & Observation" for watch, see, look, observe; "Provocation & Incitement" for provoke, instigate; "Ephemerality & Transience" for fleeting, ephemeral).';
+          .join('\n')}\nCRITICAL INSTRUCTION: If any extracted word conceptually belongs to one of these existing families, reuse that exact existing family name. If it does not belong, invent a clean, focused semantic family name.
+IMPORTANT: Never dump words into giant catch-all buckets. Adhere strictly to the semantic domain separation rules below.`
+      : '\nGroup related words into clean, intuitive, and semantically focused word family names (e.g., "Vision & Observation", "Emotional Pacification & Temper", "Reduction & Severity Mitigation", "Escalation & Aggravation").';
 
     const systemInstruction = `You are an expert lexicographer and vocabulary instructor.
 The user wants to extract vocabulary words and structure each word into a tokenized vocabulary format.
@@ -151,7 +152,15 @@ Rules:
 2. Provide the accurate translation/meaning in ${targetLanguage} (e.g., in Hindi with correct Devanagari script, like "उकसाना" for Provoke).
 3. Provide a clear, accessible, learner-friendly English definition.
 4. Provide a natural, context-rich example sentence labeled as "Usage: ...".
-5. Assign each word to a "wordFamily" (category). Words sharing semantic meaning, synonyms, or word families MUST be grouped into the same family (e.g., watch, see, look, observe, discern belong to the same family).
+5. Assign each word to a "wordFamily" (semantic category).
+SEMANTIC CLUSTERING GRANULARITY & ACCURACY RULES:
+- Never create overly broad or catch-all 'kitchen sink' families (avoid combining disparate emotions, systems, and actions under generic buckets like "Intensity & Mitigation").
+- SEPARATE HUMAN FEELINGS FROM PHYSICAL/SYSTEMIC ACTIONS:
+  * Words concerning calming human emotions, soothing anger, or placating people (e.g., placate, mollify, pacify, appease, conciliate, soothe) MUST be placed in an emotional pacification family (e.g., "Emotional Pacification & Temper").
+  * Words concerning diminishing pain, physical force, disaster severity, or systemic risks (e.g., mitigate, alleviate, attenuate, abate, palliate) MUST be placed in a reduction/mitigation family (e.g., "Reduction & Severity Mitigation").
+  * Words concerning intensifying, worsening, or aggravating conflicts or forces (e.g., exacerbate, aggravate, escalate, intensify, amplify) MUST be placed in an escalation family (e.g., "Escalation & Aggravation").
+- Never lump opposing concepts together (do NOT put words that escalate and words that mitigate into a single family; keep them distinct).
+- Keep word families focused (ideally 4 to 12 words per family) so learners can master distinct nuances without feeling overwhelmed.
 ${existingFamilyPrompt}
 6. Provide a concise explanation of the word's specific nuance within its family.
 7. Include 2-4 close synonyms.`;
@@ -351,6 +360,79 @@ app.post('/api/enrich-word', async (req, res) => {
     res.json(JSON.parse(jsonText));
   } catch (error: any) {
     console.error('Error enriching word:', error);
+    res.status(500).json({
+      error: parseFriendlyErrorMessage(error),
+    });
+  }
+});
+
+// AI Smart Re-clustering / Family Split endpoint
+app.post('/api/split-family', async (req, res) => {
+  try {
+    const { familyName, words } = req.body;
+    if (!familyName || !Array.isArray(words) || words.length === 0) {
+      return res.status(400).json({ error: 'familyName and words array are required.' });
+    }
+
+    const ai = getGenAI();
+
+    const prompt = `You are an expert lexicologist and vocabulary taxonomist.
+The user has a word family named "${familyName}" containing ${words.length} words that are currently mixed together:
+${words.map((w: any, idx: number) => `${idx + 1}. ${w.word} (${w.partOfSpeech || 'Word'}) [id: ${w.id}] — ${w.definition || ''}`).join('\n')}
+
+TASK:
+Reorganize and split these ${words.length} words into 2 to 4 distinct, semantically pure, and contextually focused word families.
+
+CRITICAL RULES:
+1. SEPARATE HUMAN FEELINGS & ANGER FROM PHYSICAL/SYSTEMIC ACTIONS:
+   - Group words about calming human emotions, soothing hurt feelings, or pacifying anger/people into an emotional pacification family (e.g., "Emotional Pacification & Temper").
+   - Group words about diminishing pain, physical force, disaster severity, damage, or risk into a reduction/mitigation family (e.g., "Reduction & Severity Mitigation").
+   - Group words about intensifying, escalating, or worsening forces or conflicts into an escalation family (e.g., "Escalation & Aggravation").
+2. NEVER create a generic catch-all bucket. Every family name must be clear, evocative, and intuitive for language learners.
+3. Account for EVERY SINGLE word from the input list. Assign each word to its best matching new family name.
+4. For each word, explain its specific nuance in that new family.`;
+
+    const response = await generateContentWithRetryAndFallback(ai, {
+      contents: prompt,
+      config: {
+        responseMimeType: 'application/json',
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            newFamilies: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  name: { type: Type.STRING, description: 'Descriptive family name (e.g. "Emotional Pacification & Temper")' },
+                  description: { type: Type.STRING, description: '1-sentence concise description of the semantic cluster' },
+                },
+                required: ['name', 'description'],
+              },
+            },
+            assignments: {
+              type: Type.ARRAY,
+              items: {
+                type: Type.OBJECT,
+                properties: {
+                  wordId: { type: Type.STRING, description: 'The original word ID' },
+                  word: { type: Type.STRING, description: 'The word headword' },
+                  newFamilyName: { type: Type.STRING, description: 'The assigned new family name' },
+                  nuance: { type: Type.STRING, description: 'Specific nuance of the word in this family' },
+                },
+                required: ['wordId', 'word', 'newFamilyName'],
+              },
+            },
+          },
+          required: ['newFamilies', 'assignments'],
+        },
+      },
+    });
+
+    const jsonText = response.text?.trim() || '{}';
+    res.json(JSON.parse(jsonText));
+  } catch (error: any) {
+    console.error('Error splitting family:', error);
     res.status(500).json({
       error: parseFriendlyErrorMessage(error),
     });

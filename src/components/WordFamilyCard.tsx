@@ -2,7 +2,7 @@ import React, { useState, useEffect, useMemo } from 'react';
 import { WordToken } from '../types';
 import { TokenCard } from './TokenCard';
 import { formatAsTokenString } from '../utils/formatters';
-import { ChevronDown, ChevronUp, Copy, Check, Plus, Tag, Sparkles, CheckCircle2, MousePointerClick, X } from 'lucide-react';
+import { ChevronDown, ChevronUp, Copy, Check, Plus, Tag, Sparkles, CheckCircle2, RefreshCw, X, MousePointerClick } from 'lucide-react';
 
 interface WordFamilyCardProps {
   familyName: string;
@@ -11,6 +11,7 @@ interface WordFamilyCardProps {
   onDeleteToken: (id: string) => void;
   onToggleMastered: (id: string) => void;
   onMoveFamily: (id: string, newFamily: string) => void;
+  onSplitFamily?: (familyName: string) => Promise<void>;
   allFamilyNames: string[];
   onQuickAddWordToFamily: (familyName: string, word: string) => Promise<void>;
   isInitiallyExpanded?: boolean;
@@ -24,6 +25,7 @@ export const WordFamilyCard: React.FC<WordFamilyCardProps> = ({
   onDeleteToken,
   onToggleMastered,
   onMoveFamily,
+  onSplitFamily,
   allFamilyNames,
   onQuickAddWordToFamily,
   targetWordId,
@@ -46,6 +48,22 @@ export const WordFamilyCard: React.FC<WordFamilyCardProps> = ({
   const [lastAddedWord, setLastAddedWord] = useState<string | null>(null);
   const [isAdding, setIsAdding] = useState(false);
   const [showQuickAdd, setShowQuickAdd] = useState(false);
+  const [isSplitting, setIsSplitting] = useState(false);
+
+  const isBroadIntensityFamily = useMemo(() => {
+    const lower = familyName.toLowerCase();
+    return lower.includes('intensity') || (lower.includes('mitigat') && displayTokens.length > 10);
+  }, [familyName, displayTokens.length]);
+
+  const handleSplitClick = async () => {
+    if (!onSplitFamily || isSplitting) return;
+    try {
+      setIsSplitting(true);
+      await onSplitFamily(familyName);
+    } finally {
+      setIsSplitting(false);
+    }
+  };
 
   // Auto-open targeted word from search
   useEffect(() => {
@@ -233,7 +251,32 @@ export const WordFamilyCard: React.FC<WordFamilyCardProps> = ({
           </div>
 
           {/* Action buttons */}
-          <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+          <div className="flex items-center gap-2 self-start sm:self-auto shrink-0 flex-wrap">
+            {onSplitFamily && (displayTokens.length > 5 || isBroadIntensityFamily) && (
+              <button
+                onClick={handleSplitClick}
+                disabled={isSplitting}
+                className={`inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors border shadow-2xs ${
+                  isBroadIntensityFamily
+                    ? 'bg-amber-500 hover:bg-amber-400 text-stone-950 font-semibold border-amber-400'
+                    : 'bg-stone-100 dark:bg-stone-800 hover:bg-stone-200 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-700'
+                }`}
+                title="Split this family into focused semantic clusters"
+              >
+                {isSplitting ? (
+                  <>
+                    <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    <span>Splitting...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className={`w-3.5 h-3.5 ${isBroadIntensityFamily ? 'text-stone-950' : 'text-amber-600 dark:text-amber-400'}`} />
+                    <span>{isBroadIntensityFamily ? 'Split into 3 Families' : 'Split Family'}</span>
+                  </>
+                )}
+              </button>
+            )}
+
             <button
               id={`quick-add-btn-${familyName.replace(/\s+/g, '-').toLowerCase()}`}
               onClick={() => setShowQuickAdd(!showQuickAdd)}
@@ -263,6 +306,40 @@ export const WordFamilyCard: React.FC<WordFamilyCardProps> = ({
             </button>
           </div>
         </div>
+
+        {/* Proactive Semantic Separation Banner for Overly Broad Families */}
+        {isBroadIntensityFamily && onSplitFamily && (
+          <div className="mt-4 p-3.5 rounded-xl bg-amber-500/10 dark:bg-amber-950/40 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs">
+            <div className="flex items-start sm:items-center gap-2.5">
+              <span className="p-1.5 rounded-lg bg-amber-500/20 text-amber-800 dark:text-amber-300 shrink-0 mt-0.5 sm:mt-0">
+                <Sparkles className="w-4 h-4" />
+              </span>
+              <div className="text-xs text-amber-950 dark:text-amber-200">
+                <span className="font-bold block sm:inline mr-1">Semantic Separation Recommended:</span>
+                <span>
+                  This family contains {displayTokens.length} words mixing emotional feelings (placating anger/crowds) with physical severity reduction and escalation. Separate them into focused, context-specific families.
+                </span>
+              </div>
+            </div>
+            <button
+              onClick={handleSplitClick}
+              disabled={isSplitting}
+              className="inline-flex items-center justify-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-stone-950 shadow-2xs transition-colors shrink-0 disabled:opacity-50"
+            >
+              {isSplitting ? (
+                <>
+                  <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                  <span>Splitting Words...</span>
+                </>
+              ) : (
+                <>
+                  <Sparkles className="w-3.5 h-3.5" />
+                  <span>Split into 3 Focused Families</span>
+                </>
+              )}
+            </button>
+          </div>
+        )}
 
         {/* Inline Quick Add Input form */}
         {showQuickAdd && (

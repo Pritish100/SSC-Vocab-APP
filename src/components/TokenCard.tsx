@@ -25,6 +25,8 @@ export const TokenCard: React.FC<TokenCardProps> = ({
   const [copied, setCopied] = useState(false);
   const [showNuance, setShowNuance] = useState(false);
   const [isChangingFamily, setIsChangingFamily] = useState(false);
+  const [newFamilyInput, setNewFamilyInput] = useState('');
+  const [isCreatingNew, setIsCreatingNew] = useState(false);
 
   const handleCopy = async () => {
     try {
@@ -35,6 +37,15 @@ export const TokenCard: React.FC<TokenCardProps> = ({
     } catch {
       // Fallback
     }
+  };
+
+  const handleApplyFamilyChange = (targetFamily: string) => {
+    const trimmed = targetFamily.trim();
+    if (!trimmed || !onMoveFamily) return;
+    onMoveFamily(token.id, trimmed);
+    setIsChangingFamily(false);
+    setIsCreatingNew(false);
+    setNewFamilyInput('');
   };
 
   return (
@@ -50,10 +61,19 @@ export const TokenCard: React.FC<TokenCardProps> = ({
       <div className="flex items-center justify-between gap-3 mb-3">
         <div className="flex items-center gap-2 flex-wrap">
           {highlightFamily && (
-            <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border border-stone-200 dark:border-stone-700">
+            <button
+              type="button"
+              onClick={() => onMoveFamily && setIsChangingFamily(!isChangingFamily)}
+              title={onMoveFamily ? "Click to change word family" : undefined}
+              className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium border transition-colors ${
+                onMoveFamily
+                  ? 'bg-stone-100 hover:bg-stone-200 dark:bg-stone-800 dark:hover:bg-stone-700 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-700 cursor-pointer'
+                  : 'bg-stone-100 dark:bg-stone-800 text-stone-700 dark:text-stone-300 border-stone-200 dark:border-stone-700'
+              }`}
+            >
               <Tag className="w-3 h-3 text-stone-500 dark:text-stone-400" />
-              {token.wordFamily}
-            </span>
+              <span>{token.wordFamily}</span>
+            </button>
           )}
           <span className="text-xs font-mono uppercase tracking-wider text-stone-500 dark:text-stone-400 bg-stone-50 dark:bg-stone-800/80 px-2 py-0.5 rounded border border-stone-100 dark:border-stone-700/60">
             {token.partOfSpeech}
@@ -195,35 +215,99 @@ export const TokenCard: React.FC<TokenCardProps> = ({
 
       {/* Reassign family dropdown option if requested */}
       {onMoveFamily && isChangingFamily ? (
-        <div className="mt-3 pt-3 border-t border-stone-100 dark:border-stone-800 flex items-center gap-2">
-          <select
-            value={token.wordFamily}
-            onChange={(e) => {
-              onMoveFamily(token.id, e.target.value);
-              setIsChangingFamily(false);
-            }}
-            className="text-xs border border-stone-300 dark:border-stone-700 rounded px-2 py-1 bg-white dark:bg-stone-950 text-stone-700 dark:text-stone-200"
-          >
-            {availableFamilies.map((fam) => (
-              <option key={fam} value={fam}>
-                {fam}
-              </option>
-            ))}
-          </select>
-          <button
-            onClick={() => setIsChangingFamily(false)}
-            className="text-xs text-stone-500 dark:text-stone-400 hover:text-stone-800 dark:hover:text-stone-200"
-          >
-            Cancel
-          </button>
+        <div className="mt-3 pt-3 border-t border-stone-200 dark:border-stone-800 bg-stone-50/80 dark:bg-stone-950/60 p-3 rounded-xl">
+          <div className="flex items-center justify-between gap-2 mb-2">
+            <span className="text-xs font-semibold text-stone-800 dark:text-stone-200 flex items-center gap-1.5">
+              <Tag className="w-3.5 h-3.5 text-amber-500" />
+              <span>Move &quot;{token.word}&quot; to Family:</span>
+            </span>
+            <button
+              onClick={() => {
+                setIsChangingFamily(false);
+                setIsCreatingNew(false);
+              }}
+              className="text-xs text-stone-400 hover:text-stone-700 dark:hover:text-stone-200"
+            >
+              Cancel
+            </button>
+          </div>
+
+          {!isCreatingNew ? (
+            <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-2">
+              <select
+                value={token.wordFamily}
+                onChange={(e) => {
+                  if (e.target.value === '__NEW__') {
+                    setIsCreatingNew(true);
+                  } else {
+                    handleApplyFamilyChange(e.target.value);
+                  }
+                }}
+                className="text-xs border border-stone-300 dark:border-stone-700 rounded-lg px-2.5 py-1.5 bg-white dark:bg-stone-900 text-stone-800 dark:text-stone-200 flex-1"
+              >
+                <optgroup label="Existing Families">
+                  {availableFamilies.map((fam) => (
+                    <option key={fam} value={fam}>
+                      {fam} {fam === token.wordFamily ? '(Current)' : ''}
+                    </option>
+                  ))}
+                </optgroup>
+                <optgroup label="Custom">
+                  <option value="__NEW__">+ Create New Family...</option>
+                </optgroup>
+              </select>
+
+              <button
+                type="button"
+                onClick={() => setIsCreatingNew(true)}
+                className="text-xs px-2.5 py-1.5 rounded-lg border border-stone-300 dark:border-stone-700 hover:bg-white dark:hover:bg-stone-800 text-stone-700 dark:text-stone-300 whitespace-nowrap"
+              >
+                + New Family
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                value={newFamilyInput}
+                onChange={(e) => setNewFamilyInput(e.target.value)}
+                placeholder="e.g. Emotional Pacification & Temper..."
+                className="text-xs border border-stone-300 dark:border-stone-700 rounded-lg px-3 py-1.5 bg-white dark:bg-stone-900 text-stone-900 dark:text-stone-100 flex-1 focus:outline-hidden focus:ring-1 focus:ring-amber-500"
+                autoFocus
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleApplyFamilyChange(newFamilyInput);
+                  }
+                }}
+              />
+              <button
+                type="button"
+                onClick={() => handleApplyFamilyChange(newFamilyInput)}
+                disabled={!newFamilyInput.trim()}
+                className="text-xs px-3 py-1.5 rounded-lg bg-stone-900 text-white dark:bg-amber-400 dark:text-stone-950 font-semibold disabled:opacity-50"
+              >
+                Save &amp; Move
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsCreatingNew(false)}
+                className="text-xs text-stone-400 hover:text-stone-600 dark:hover:text-stone-300 px-1"
+              >
+                Back
+              </button>
+            </div>
+          )}
         </div>
-      ) : onMoveFamily && availableFamilies.length > 1 ? (
-        <div className="mt-2 text-right">
+      ) : onMoveFamily ? (
+        <div className="mt-2.5 flex items-center justify-end">
           <button
             onClick={() => setIsChangingFamily(true)}
-            className="text-[11px] text-stone-400 dark:text-stone-500 hover:text-stone-600 dark:hover:text-stone-300 underline"
+            className="text-[11px] text-stone-400 hover:text-stone-700 dark:text-stone-500 dark:hover:text-stone-300 inline-flex items-center gap-1 transition-colors"
+            title="Change this word's family"
           >
-            Move to another family
+            <Tag className="w-3 h-3" />
+            <span>Change family</span>
           </button>
         </div>
       ) : null}

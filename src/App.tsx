@@ -13,6 +13,7 @@ import { FlashcardMode } from './components/FlashcardMode';
 import { InputModal } from './components/InputModal';
 import { SearchModal } from './components/SearchModal';
 import { exportWordsAsPlainText } from './utils/formatters';
+import { smartSplitFamily } from './utils/familySplitter';
 import { useAuth } from './context/AuthContext';
 import {
   saveWordToCloud,
@@ -441,16 +442,44 @@ export default function App() {
   };
 
   const handleMoveFamily = async (id: string, newFamily: string) => {
+    const trimmedFamily = newFamily.trim();
+    if (!trimmedFamily) return;
+
+    // Check if this family is newly created
+    let updatedFamilies = [...families];
+    const exists = updatedFamilies.some(
+      (f) => f.name.trim().toLowerCase() === trimmedFamily.toLowerCase()
+    );
+
+    if (!exists) {
+      const newFam: WordFamily = {
+        id: `fam-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+        name: trimmedFamily,
+        description: `Words clustered under ${trimmedFamily}`,
+        createdAt: Date.now(),
+      };
+      updatedFamilies.push(newFam);
+      setFamilies(updatedFamilies);
+      if (user) {
+        saveUserDataToCloud(user.uid, {
+          email: user.email,
+          displayName: user.displayName,
+          families: updatedFamilies,
+        }).catch((err) => console.error('Failed to sync new family to cloud:', err));
+      }
+    }
+
     let movedItem: WordToken | undefined;
     setWords((prev) =>
       prev.map((w) => {
         if (w.id === id) {
-          movedItem = { ...w, wordFamily: newFamily };
+          movedItem = { ...w, wordFamily: trimmedFamily };
           return movedItem;
         }
         return w;
       })
     );
+
     if (user && movedItem) {
       try {
         await saveWordToCloud(user.uid, movedItem);
@@ -458,7 +487,89 @@ export default function App() {
         console.error('Failed to update moved word to cloud:', err);
       }
     }
-    showToast(`Word moved to "${newFamily}"`);
+    showToast(`Word moved to "${trimmedFamily}"`);
+  };
+
+  const handleSplitFamily = async (targetFamilyName: string) => {
+    try {
+      setIsSyncing(true);
+      const familyWords = words.filter(
+        (w) => w.wordFamily.trim().toLowerCase() === targetFamilyName.trim().toLowerCase()
+      );
+
+      if (familyWords.length === 0) {
+        showToast(`No words found in family "${targetFamilyName}" to split.`);
+        return;
+      }
+
+      const splitResult = await smartSplitFamily(targetFamilyName, familyWords);
+
+      // 1. Create mapping of wordId -> new assignment
+      const assignmentMap = new Map<string, { newFamilyName: string; nuance?: string }>();
+      splitResult.assignments.forEach((a) => {
+        assignmentMap.set(a.wordId, { newFamilyName: a.newFamilyName, nuance: a.nuance });
+      });
+
+      // 2. Update words state
+      const updatedWords = words.map((w) => {
+        if (assignmentMap.has(w.id)) {
+          const a = assignmentMap.get(w.id)!;
+          return {
+            ...w,
+            wordFamily: a.newFamilyName,
+            nuance: a.nuance || w.nuance,
+          };
+        }
+        return w;
+      });
+
+      // 3. Update families list: remove old familyName, add newFamilies
+      const existingOtherFamilies = families.filter(
+        (f) => f.name.trim().toLowerCase() !== targetFamilyName.trim().toLowerCase()
+      );
+
+      const newFamilyObjects: WordFamily[] = splitResult.newFamilies.map((nf, idx) => ({
+        id: `fam-${Date.now()}-${idx}-${Math.random().toString(36).slice(2, 6)}`,
+        name: nf.name,
+        description: nf.description,
+        createdAt: Date.now() + idx,
+      }));
+
+      const mergedFamilies = [...existingOtherFamilies];
+      for (const nf of newFamilyObjects) {
+        if (!mergedFamilies.some((f) => f.name.trim().toLowerCase() === nf.name.trim().toLowerCase())) {
+          mergedFamilies.push(nf);
+        }
+      }
+
+      setFamilies(mergedFamilies);
+      setWords(updatedWords);
+
+      // 4. Sync to Firestore if authenticated
+      if (user) {
+        await saveUserDataToCloud(user.uid, {
+          email: user.email,
+          displayName: user.displayName,
+          families: mergedFamilies,
+        });
+
+        await Promise.all(
+          updatedWords
+            .filter((w) => assignmentMap.has(w.id))
+            .map((w) => saveWordToCloud(user.uid, w))
+        );
+      }
+
+      showToast(
+        `Separated into ${splitResult.newFamilies.length} focused families!`,
+        splitResult.newFamilies.map((f) => f.name).join(' • ')
+      );
+    } catch (err: any) {
+      console.error('Failed to split family:', err);
+      showToast(`Could not split family: ${err.message || err}`);
+    } finally {
+      setIsSyncing(false);
+    }
   };
 
   const handleExportText = () => {
@@ -594,6 +705,36 @@ export default function App() {
               </button>
             </div>
 
+            {/* Proactive Alert for Broad Intensity & Mitigation Family */}
+            {words.some((w) => w.wordFamily.toLowerCase().includes('intensity')) && (
+              <div className="p-4 rounded-2xl bg-amber-500/10 dark:bg-amber-950/40 border border-amber-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-xs">
+                <div className="flex items-start sm:items-center gap-3">
+                  <span className="p-2 rounded-xl bg-amber-500/20 text-amber-900 dark:text-amber-300 shrink-0">
+                    <Sparkles className="w-5 h-5" />
+                  </span>
+                  <div>
+                    <h4 className="text-sm font-bold text-stone-900 dark:text-stone-100">
+                      Semantic Clustering Optimization Ready
+                    </h4>
+                    <p className="text-xs text-stone-600 dark:text-stone-300 mt-0.5">
+                      Your &quot;Intensity &amp; Mitigation&quot; family contains mixed concepts (placating human emotions/anger vs. physical mitigation vs. escalation). Separate them into 3 distinct, context-specific families with 1 click.
+                    </p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    const match = words.find((w) => w.wordFamily.toLowerCase().includes('intensity'));
+                    if (match) handleSplitFamily(match.wordFamily);
+                  }}
+                  disabled={isSyncing}
+                  className="inline-flex items-center justify-center gap-2 px-4 py-2 rounded-xl text-xs font-semibold bg-amber-500 hover:bg-amber-400 text-stone-950 transition-colors shrink-0 shadow-xs cursor-pointer"
+                >
+                  <Sparkles className="w-4 h-4" />
+                  <span>Split into 3 Focused Families</span>
+                </button>
+              </div>
+            )}
+
             {/* Families list */}
             {groupedTokensByFamily.length > 0 ? (
               <div className="space-y-6">
@@ -606,6 +747,7 @@ export default function App() {
                     onDeleteToken={handleDeleteToken}
                     onToggleMastered={handleToggleMastered}
                     onMoveFamily={handleMoveFamily}
+                    onSplitFamily={handleSplitFamily}
                     allFamilyNames={allFamilyNames}
                     onQuickAddWordToFamily={handleQuickAddWordToFamily}
                     targetWordId={targetWordId}
